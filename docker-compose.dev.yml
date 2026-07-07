@@ -1,0 +1,29 @@
+# Локальная разработка. В ОТЛИЧИЕ от аналога, свои pg/redis НЕ поднимаем —
+# на ПК уже запущены контейнеры postgres16 (:5432, БД mydb) и redis (:6379).
+# Бот ходит в них через host.docker.internal и работает в ОТДЕЛЬНОЙ схеме maria_doll
+# (база mydb не пустая — там чужая схема hermes_agent, её не трогаем).
+#
+# Запуск:    docker compose -f docker-compose.dev.yml up --build
+# Стоп:      docker compose -f docker-compose.dev.yml down
+#
+# Hot-reload: src/ и migrations/ смонтированы, watchfiles перезапускает бота при
+# изменениях. На Windows обязателен WATCHFILES_FORCE_POLLING (inotify через bind-mount
+# в Docker Desktop не пробрасывается).
+
+services:
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:5432/mydb
+      REDIS_URL: redis://host.docker.internal:6379/3
+      DB_SCHEMA: maria_doll
+      WATCHFILES_FORCE_POLLING: "true"
+    command: ["watchfiles", "--filter", "python", "python -m src.main", "src", "migrations"]
+    volumes:
+      - ./src:/app/src
+      - ./migrations:/app/migrations
+      - ./alembic.ini:/app/alembic.ini
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
