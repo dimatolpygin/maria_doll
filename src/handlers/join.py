@@ -64,6 +64,10 @@ async def on_join_request(
     # Обрабатываем только заявки в нашу группу (если id задан в настройках).
     club_id = settings.club_chat_id_int
     if club_id is not None and chat_id != club_id:
+        logger.info(
+            f"Заявка в другой чат chat_id={chat_id} (ждём {club_id}) — игнорирую. "
+            f"Если это нужная группа — обнови CLUB_CHAT_ID."
+        )
         return
 
     sub = await repo.get_active_subscription(pool, user.id)
