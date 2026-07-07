@@ -44,12 +44,25 @@ def _stringify(value: Any) -> Any:
     return str(value)
 
 
-def sign(data: dict, secret: str) -> str:
-    """HMAC-SHA256-подпись данных секретным ключом платёжной страницы (hex)."""
+def sign_payload(data: dict) -> str:
+    """Строка (компактный отсортированный JSON), по которой считается подпись.
+
+    Вынесено отдельно для отладки: позволяет сравнить, что именно подписываем,
+    со строкой на стороне Продамуса при расхождении подписи.
+    """
     prepared = _stringify(data)
     payload = json.dumps(
         prepared, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
+    # PHP json_encode Продамуса (JSON_UNESCAPED_UNICODE, но БЕЗ UNESCAPED_SLASHES)
+    # экранирует прямой слэш: '/' → '\/'. Воспроизводим — иначе подпись расходится
+    # на значениях со слэшами (например payment_type "Visa/MasterCard/МИР, RUB").
+    return payload.replace("/", "\\/")
+
+
+def sign(data: dict, secret: str) -> str:
+    """HMAC-SHA256-подпись данных секретным ключом платёжной страницы (hex)."""
+    payload = sign_payload(data)
     return hmac.new(
         secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
     ).hexdigest()

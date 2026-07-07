@@ -82,6 +82,27 @@ def test_parse_then_verify_endtoend() -> None:
     assert prodamus.verify(reparsed, "wrong-secret", sign_header) is False
 
 
+def test_slash_escaping_matches_php() -> None:
+    """Слэши в значениях экранируются как в PHP json_encode Продамуса ('/'→'\\/').
+
+    Регрессия к реальному расхождению: payment_type «Visa/MasterCard/МИР» давал
+    другую подпись, пока слэши не экранировались. Эталон посчитан демо-ключом
+    (публичный ключ демо-формы из офф-документации, не боевой).
+    """
+    body = {
+        "order_num": "x1",
+        "sum": "55.00",
+        "payment_type": "Visa/MasterCard/МИР, RUB",
+        "payment_status": "success",
+    }
+    # В строке для подписи слэши экранированы.
+    assert "Visa\\/MasterCard\\/МИР" in prodamus.sign_payload(body)
+    # И подпись стабильна (совместима с PHP-стороной Продамуса).
+    assert prodamus.sign(body, DEMO_SECRET) == (
+        "f86ffe5875778e2954ee5cd261cc6373c624f1d3911f96062b3d38525079cff7"
+    )
+
+
 def test_build_payment_url() -> None:
     params = prodamus.build_link_params(
         order_id="md-1-xyz",
