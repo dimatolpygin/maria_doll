@@ -66,6 +66,8 @@ async def start_payment(
         url_return=_return_url(),
         url_success=_return_url(),
         do="pay",
+        # Демо-режим: платёж без реального списания (передаём только когда включён).
+        extra={"demo_mode": "1"} if settings.prodamus_demo_mode else None,
     )
     pay_url = prodamus.build_payment_url(
         settings.prodamus_form_url, params, secret=settings.prodamus_secret_key or None
