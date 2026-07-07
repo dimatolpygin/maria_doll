@@ -207,3 +207,19 @@ async def get_last_subscription(
         "SELECT * FROM subscriptions WHERE tg_id = $1 ORDER BY id DESC LIMIT 1",
         tg_id,
     )
+
+
+async def expire_due_subscriptions(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    """Помечает истёкшие активные подписки 'expired'. Возвращает строки (id, tg_id).
+
+    Вызывается фоновой проверкой окончаний (этап 3): по возвращённым юзерам бот
+    кикает из закрытой группы и шлёт уведомление «подписка закончилась».
+    """
+    return await pool.fetch(
+        """
+        UPDATE subscriptions
+        SET status = 'expired'
+        WHERE status = 'active' AND end_date <= now()
+        RETURNING id, tg_id
+        """
+    )

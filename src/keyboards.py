@@ -4,6 +4,8 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from .config import settings
+
 # ── Навигация по экранам ─────────────────────────────────────────────────────
 NAV_START = "nav:start"
 NAV_ABOUT = "nav:about"
@@ -49,5 +51,24 @@ def support_kb(url: str | None) -> InlineKeyboardMarkup:
 def to_menu_kb() -> InlineKeyboardMarkup:
     """Кнопка в главное меню (для заглушек и подтверждений)."""
     b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="В главное меню", callback_data=NAV_MENU))
+    return b.as_markup()
+
+
+def sub_ended_kb() -> InlineKeyboardMarkup:
+    """Клавиатура уведомления «подписка закончилась»: вернуться / промокод."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Вернуться в клуб", callback_data=NAV_TARIFF))
+    b.row(InlineKeyboardButton(text="В главное меню", callback_data=NAV_MENU))
+    return b.as_markup()
+
+
+def mysub_kb() -> InlineKeyboardMarkup:
+    """Клавиатура экрана «Моя подписка»: чат (если задан) + меню."""
+    b = InlineKeyboardBuilder()
+    if settings.club_chat_invite_url:
+        b.row(InlineKeyboardButton(
+            text="Перейти в закрытый чат", url=settings.club_chat_invite_url
+        ))
     b.row(InlineKeyboardButton(text="В главное меню", callback_data=NAV_MENU))
     return b.as_markup()

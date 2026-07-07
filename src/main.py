@@ -12,6 +12,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from . import __version__
 from .cache import close_redis, init_redis
@@ -20,6 +21,7 @@ from .db import close_pool, init_pool
 from .handlers import get_main_router
 from .logger import setup_logging
 from .middlewares import LoggingMiddleware
+from .services import subscriptions
 from .webapp import start_webhook_server
 
 
@@ -49,18 +51,35 @@ async def main() -> None:
     # (общий pool и bot: уведомляем пользователя сразу после активации подписки).
     webhook_runner = await start_webhook_server(pool, bot)
 
+    # Фоновая проверка окончаний подписок: статус expired + кик из группы + уведомление.
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler.add_job(
+        subscriptions.run_expiry_check,
+        "interval",
+        minutes=settings.expiry_check_interval_min,
+        args=[pool, bot],
+        id="expire_subscriptions",
+        max_instances=1,
+        coalesce=True,
+    )
+
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await bot.set_my_commands([
             BotCommand(command="start", description="Главный экран"),
         ])
         me = await bot.get_me()
-        # Явно запрашиваем нужные типы апдейтов (chat_join_request понадобится на этапе 3).
+        scheduler.start()
+        # Явно запрашиваем нужные типы апдейтов (chat_join_request для заявок в группу).
         allowed = dp.resolve_used_update_types()
-        log.info(f"✅ Бот @{me.username} запущен (polling); апдейты: {allowed}")
+        log.info(
+            f"✅ Бот @{me.username} запущен (polling); проверка окончаний каждые "
+            f"{settings.expiry_check_interval_min} мин; апдейты: {allowed}"
+        )
         await dp.start_polling(bot, allowed_updates=allowed)
     finally:
         log.info("Останавливаю бота...")
+        scheduler.shutdown(wait=False)
         await webhook_runner.cleanup()
         await close_redis()
         await close_pool()
