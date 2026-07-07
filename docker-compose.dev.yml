@@ -20,6 +20,10 @@ services:
       DB_SCHEMA: maria_doll
       WATCHFILES_FORCE_POLLING: "true"
     command: ["watchfiles", "--filter", "python", "python -m src.main", "src", "migrations"]
+    # Порт приёмника вебхука Продамуса — наружу для локального теста оплаты
+    # (на проде вебхук идёт через nginx/домен, этот проброс не нужен).
+    ports:
+      - "18080:8080"
     volumes:
       - ./src:/app/src
       - ./migrations:/app/migrations
