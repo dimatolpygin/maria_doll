@@ -1,6 +1,7 @@
-"""Точка входа: миграции (Alembic), инициализация БД/Redis, запуск бота (polling).
+"""Точка входа: миграции (Alembic), инициализация БД/Redis, запуск бота (polling)
+и приёмника вебхуков Продамуса (этап 2).
 
-Этап 0 — минимальный каркас: без планировщиков (они добавятся на этапах 2–4).
+Планировщик проверки окончаний подписок добавится на этапе 3.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from .db import close_pool, init_pool
 from .handlers import get_main_router
 from .logger import setup_logging
 from .middlewares import LoggingMiddleware
+from .webapp import start_webhook_server
 
 
 async def main() -> None:
@@ -43,6 +45,10 @@ async def main() -> None:
     dp.update.middleware(LoggingMiddleware())
     dp.include_router(get_main_router())
 
+    # Приёмник вебхуков Продамуса — рядом с поллингом, в том же event loop
+    # (общий pool и bot: уведомляем пользователя сразу после активации подписки).
+    webhook_runner = await start_webhook_server(pool, bot)
+
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await bot.set_my_commands([
@@ -55,6 +61,7 @@ async def main() -> None:
         await dp.start_polling(bot, allowed_updates=allowed)
     finally:
         log.info("Останавливаю бота...")
+        await webhook_runner.cleanup()
         await close_redis()
         await close_pool()
         await bot.session.close()

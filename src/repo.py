@@ -1,11 +1,17 @@
 """Доступ к БД (asyncpg). Все запросы идут в нашу схему (search_path из db.py).
 
 Этап 1: пользователи, FSM-состояние, журнал действий, переопределения экранов/кнопок,
-тарифы. Подписки/оплаты/промокоды добавятся на следующих этапах.
+тарифы. Этап 2: платежи и подписки (Продамус). Промокоды — на следующих этапах.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from decimal import Decimal
+
 import asyncpg
+
+from .utils import add_period
 
 # Сколько последних записей журнала действий хранить на пользователя.
 _EVENTS_KEEP = 50
@@ -93,10 +99,111 @@ async def get_tariff(pool: asyncpg.Pool, tariff_id: int) -> asyncpg.Record | Non
     )
 
 
-# ── Подписки (заглушка до этапа 2) ────────────────────────────────────────────
-async def get_active_subscription(pool: asyncpg.Pool, tg_id: int):
-    """Активная подписка пользователя. Этап 1: таблицы подписок ещё нет → None.
+# ── Платежи (Продамус) ────────────────────────────────────────────────────────
+async def create_payment(
+    pool: asyncpg.Pool,
+    *,
+    order_num: str,
+    tg_id: int,
+    tariff_id: int | None,
+    months: int,
+    unit: str,
+    amount: Decimal,
+    pay_url: str,
+    kind: str = "purchase",
+) -> asyncpg.Record:
+    """Создаёт платёж в статусе pending и возвращает его запись."""
+    return await pool.fetchrow(
+        """
+        INSERT INTO payments
+            (order_num, tg_id, tariff_id, months, unit, amount, pay_url, kind, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+        RETURNING *
+        """,
+        order_num, tg_id, tariff_id, months, unit, amount, pay_url, kind,
+    )
 
-    Появится на этапе 2 вместе с оплатой Продамус.
+
+async def get_payment_by_order_num(
+    pool: asyncpg.Pool, order_num: str
+) -> asyncpg.Record | None:
+    return await pool.fetchrow("SELECT * FROM payments WHERE order_num = $1", order_num)
+
+
+async def activate_payment(
+    pool: asyncpg.Pool,
+    *,
+    order_num: str,
+    prodamus_order_id: str | None = None,
+    payment_type: str | None = None,
+    raw: dict | None = None,
+) -> tuple[asyncpg.Record | None, bool]:
+    """Идемпотентно активирует оплаченный платёж и создаёт подписку.
+
+    Возвращает (подписка, создана_ли_только_что). Повторный вызов по тому же
+    order_num (второй вебхук) не создаёт вторую подписку — вернёт (существующая,
+    False). Если платёж не найден — (None, False). Всё под FOR UPDATE в транзакции.
     """
-    return None
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            pay = await conn.fetchrow(
+                "SELECT * FROM payments WHERE order_num = $1 FOR UPDATE", order_num
+            )
+            if pay is None:
+                return None, False
+            if pay["status"] == "succeeded":
+                sub = await conn.fetchrow(
+                    "SELECT * FROM subscriptions WHERE payment_id = $1", pay["id"]
+                )
+                return sub, False
+
+            now = datetime.now(timezone.utc)
+            end = add_period(now, pay["months"], pay["unit"])
+            await conn.execute(
+                """
+                UPDATE payments
+                SET status = 'succeeded', paid_at = now(),
+                    prodamus_order_id = $2, payment_type = $3, raw = $4::jsonb
+                WHERE id = $1
+                """,
+                pay["id"], prodamus_order_id, payment_type,
+                json.dumps(raw, ensure_ascii=False) if raw is not None else None,
+            )
+            sub = await conn.fetchrow(
+                """
+                INSERT INTO subscriptions
+                    (tg_id, payment_id, tariff_id, price, months, unit,
+                     start_date, end_date, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
+                RETURNING *
+                """,
+                pay["tg_id"], pay["id"], pay["tariff_id"], pay["amount"],
+                pay["months"], pay["unit"], now, end,
+            )
+            return sub, True
+
+
+# ── Подписки ──────────────────────────────────────────────────────────────────
+async def get_active_subscription(
+    pool: asyncpg.Pool, tg_id: int
+) -> asyncpg.Record | None:
+    """Активная (не истёкшая) подписка пользователя — или None."""
+    return await pool.fetchrow(
+        """
+        SELECT * FROM subscriptions
+        WHERE tg_id = $1 AND status = 'active' AND end_date > now()
+        ORDER BY end_date DESC
+        LIMIT 1
+        """,
+        tg_id,
+    )
+
+
+async def get_last_subscription(
+    pool: asyncpg.Pool, tg_id: int
+) -> asyncpg.Record | None:
+    """Последняя по времени подписка пользователя (для экрана успеха)."""
+    return await pool.fetchrow(
+        "SELECT * FROM subscriptions WHERE tg_id = $1 ORDER BY id DESC LIMIT 1",
+        tg_id,
+    )

@@ -16,7 +16,7 @@ import asyncpg
 from .. import keyboards as kb
 from .. import repo, texts
 from ..logger import logger
-from ..services import tariffs
+from ..services import payments, tariffs
 from ..utils import fmt_price
 
 router = Router()
@@ -84,8 +84,44 @@ async def show_summary(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
     )
 
 
-# ── Заглушка оплаты (реальная оплата Продамус — этап 2) ───────────────────────
+# ── Создание платежа Продамус и выдача ссылки на оплату ───────────────────────
 @router.callback_query(F.data.startswith("pay:create:"))
-async def pay_stub(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
-    await _edit(cb, texts.SOON, kb.to_menu_kb())
-    logger.info(f"🤖 Бот → @{cb.from_user.username or '—'}: заглушка оплаты (этап 1)")
+async def pay_create(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
+    # Повторная защита: у оплатившего платёж не создаём.
+    if await repo.get_active_subscription(pool, cb.from_user.id) is not None:
+        await cb.answer("У тебя уже есть активная подписка.", show_alert=True)
+        return
+
+    tariff_id = int(cb.data.split(":", 2)[2])
+    result = await start_payment_safe(pool, cb.from_user.id, tariff_id)
+    if result is None:
+        await _edit(cb, texts.PAY_UNAVAILABLE, kb.to_menu_kb())
+        logger.info(f"🤖 Бот → @{cb.from_user.username or '—'}: оплата недоступна")
+        return
+
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(
+        text=f"Оплатить {fmt_price(result['amount'])} ₽", url=result["pay_url"]
+    ))
+    b.row(InlineKeyboardButton(text="Назад", callback_data=kb.NAV_TARIFF))
+    await _edit(
+        cb,
+        texts.pay_link(
+            texts.period_phrase(result["months"], result["unit"]),
+            fmt_price(result["amount"]),
+        ),
+        b.as_markup(),
+    )
+    logger.info(
+        f"🤖 Бот → @{cb.from_user.username or '—'}: ссылка на оплату "
+        f"{fmt_price(result['amount'])} ₽ (order_num={result['order_num']})"
+    )
+
+
+async def start_payment_safe(pool: asyncpg.Pool, tg_id: int, tariff_id: int) -> dict | None:
+    """Обёртка над payments.start_payment с защитой от сбоя (вернёт None)."""
+    try:
+        return await payments.start_payment(pool, tg_id=tg_id, tariff_id=tariff_id)
+    except Exception as e:  # noqa: BLE001 — сбой оплаты не должен ронять хендлер
+        logger.error(f"Не удалось создать платёж для tg_id={tg_id}: {e}")
+        return None
