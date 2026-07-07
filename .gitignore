@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Окружение и секреты
+.env
+.env.local
+*.local
+.secrets/
+ssh_connect.txt
+доступы.txt
+переписка.txt
+
+# Логи
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
