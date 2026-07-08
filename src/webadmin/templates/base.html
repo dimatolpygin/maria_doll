@@ -80,5 +80,25 @@
     </div>
   </main>
 </div>
+<script>
+  // Защита от двойной отправки форм с загрузкой файлов (фото рассылки/экрана):
+  // фото заливаются на сервер во время POST, это занимает время — кнопка «Отправить»
+  // остаётся активной, и нетерпеливые повторные клики создавали несколько рассылок.
+  // После первого сабмита блокируем кнопку (форма уже отправляется).
+  (function () {
+    var forms = document.querySelectorAll('form[enctype="multipart/form-data"]');
+    for (var i = 0; i < forms.length; i++) {
+      forms[i].addEventListener('submit', function (e) {
+        var btn = e.currentTarget.querySelector('button[type="submit"], button:not([type])');
+        if (!btn || btn.disabled) return;
+        // Даём форме уйти, затем блокируем (disable до отправки отменил бы submit).
+        setTimeout(function () {
+          btn.disabled = true;
+          if (btn.dataset.busy) btn.textContent = btn.dataset.busy;
+        }, 0);
+      });
+    }
+  })();
+</script>
 </body>
 </html>
