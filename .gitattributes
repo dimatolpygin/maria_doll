@@ -1,0 +1,5 @@
+# Единообразные переносы строк. Шелл-скрипты — всегда LF, иначе CRLF с Windows
+# ломает запуск на Linux-сервере (bad interpreter).
+* text=auto eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
