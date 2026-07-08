@@ -12,11 +12,31 @@
 Пустое поле или текст по умолчанию — бот покажет вариант из кода.</p>
 
 <div class="screen-grid">
-  <form method="post" action="/screens/{{ screen.key }}" class="form">
+  <form method="post" action="/screens/{{ screen.key }}" class="form" enctype="multipart/form-data">
     <label class="field">
       <span class="field-label">Текст экрана</span>
-      <textarea class="input textarea" name="body" rows="14" placeholder="{{ screen.default_body }}">{{ screen.body }}</textarea>
+      <textarea class="input textarea" name="body" rows="12" placeholder="{{ screen.default_body }}">{{ screen.body }}</textarea>
+      {% if screen.photo_url %}<span class="field-hint">С картинкой текст идёт подписью под фото — не длиннее {{ caption_limit }} символов.</span>{% endif %}
     </label>
+
+    <div class="field">
+      <span class="field-label">Картинка экрана</span>
+      {% if screen.photo_url %}
+        <img src="{{ screen.photo_url }}" alt="картинка экрана" style="max-width:260px;border-radius:10px;border:1px solid var(--line)">
+        <label class="check" style="margin-top:8px">
+          <input type="checkbox" name="remove_photo"> Убрать картинку
+        </label>
+      {% else %}
+        <span class="field-hint">Сейчас без картинки.</span>
+      {% endif %}
+      {% if s3_enabled %}
+        <input class="input" type="file" name="photo" accept="image/*" style="margin-top:8px">
+        <span class="field-hint">Загрузите новую, чтобы {{ "заменить" if screen.photo_url else "добавить" }} картинку.</span>
+      {% else %}
+        <span class="field-hint">Загрузка недоступна: хранилище S3 не настроено.</span>
+      {% endif %}
+    </div>
+
     <div class="form-buttons">
       <button type="submit" class="btn btn-primary">Сохранить</button>
     </div>

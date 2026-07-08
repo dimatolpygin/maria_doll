@@ -12,7 +12,7 @@ Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</
 счётчики ниже. Заблокировавшие бота пропускаются.</p>
 
 <h3 class="section-title">Новая рассылка</h3>
-<form method="post" action="/broadcasts/create" class="card">
+<form method="post" action="/broadcasts/create" class="card" enctype="multipart/form-data">
   <div class="field" style="margin-bottom:12px">
     <span class="field-label">Кому</span>
     <select name="audience" class="input" style="max-width:340px">
@@ -21,8 +21,19 @@ Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</
   </div>
   <div class="field">
     <span class="field-label">Текст сообщения</span>
-    <textarea class="input textarea" name="body" rows="8" placeholder="Текст рассылки…" required></textarea>
+    <textarea class="input textarea" name="body" rows="8" placeholder="Текст рассылки…"></textarea>
   </div>
+  {% if s3_enabled %}
+  <div class="field" style="margin-top:12px">
+    <span class="field-label">Фото (до {{ max_photos }} — альбом)</span>
+    <input class="input" type="file" name="photos" accept="image/*" multiple>
+    <span class="field-hint">Одно фото — с подписью; несколько — альбомом (подпись на первом).
+    Можно без текста — только фото.</span>
+  </div>
+  {% else %}
+  <p class="muted" style="margin-top:12px">Загрузка фото недоступна: хранилище S3 не настроено —
+  рассылка только текстовая.</p>
+  {% endif %}
   <div class="form-actions"><button type="submit" class="btn btn-primary">Отправить рассылку</button></div>
 </form>
 
@@ -40,7 +51,7 @@ Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</
       <tr>
         <td class="nowrap"><b>#{{ b.id }}</b></td>
         <td class="nowrap">{{ b.audience }}</td>
-        <td>{{ b.preview }}</td>
+        <td>{{ b.preview }}{% if b.photos %} <span class="badge badge-blue">фото {{ b.photos }}</span>{% endif %}</td>
         <td class="nowrap">{{ b.status }}</td>
         <td class="nowrap">
           {% if b.is_done %}{{ b.sent }} / {{ b.total }}

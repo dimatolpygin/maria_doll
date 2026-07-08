@@ -1,11 +1,13 @@
 """Раздел админки «Экраны бота» (этап 6).
 
 Правка текстов инфо-экранов бота (приветствие, меню, что внутри, правила, поддержка)
-без правки кода. Состав экранов и дефолтные тексты — в реестре services.screens; здесь
-правится текст (таблица screen_texts через repo). Бот применяет правки на лету.
+без правки кода и картинки экрана (S3). Состав экранов и дефолтные тексты — в реестре
+services.screens; здесь правится текст (screen_texts.body) и картинка
+(screen_texts.photo_url через S3, services.storage). Бот применяет правки на лету.
 
-Картинки экранов не поддерживаем (в проекте нет S3 — решение этапа 6): только текст.
-Подписи кнопок меню правятся на отдельной странице «Кнопки меню».
+Картинка опциональна. Telegram кладёт текст в подпись под фото, поэтому при наличии
+картинки текст ограничен 1024 символами (серверная валидация). Если S3 не настроен —
+доступна только правка текста. Подписи кнопок меню правятся на отдельной странице.
 """
 from __future__ import annotations
 
@@ -13,9 +15,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
 from .. import repo
+from ..config import settings
 from ..db import get_pool
 from ..logger import logger
-from ..services import screens
+from ..services import screens, storage
 from .deps import current_admin, templates
 
 router = APIRouter()
@@ -45,6 +48,7 @@ async def _render_form(request: Request, key: str, *, ok: bool = False, error: s
         {
             "active": "screens", "admin": request.session.get("admin"),
             "screen": screen, "ok": ok, "error": error,
+            "s3_enabled": settings.s3_enabled, "caption_limit": screens.CAPTION_LIMIT,
         },
     )
 
@@ -64,11 +68,52 @@ async def screen_save(request: Request, key: str):
         return RedirectResponse("/screens", status_code=303)
     form = await request.form()
 
-    # Пустой текст или совпал с дефолтом → храним NULL (дефолт из реестра).
+    # Текст: пустой или совпал с дефолтом → храним NULL (дефолт из реестра).
     raw = (form.get("body") or "").replace("\r\n", "\n").strip()
     default = screens.default_text(key).strip()
     body = None if (not raw or raw == default) else raw
 
+    # Картинка: снять / загрузить новую / оставить как есть. Текст и фото независимы.
+    current_photo = screen.get("photo_url")
+    new_photo = current_photo
+    if form.get("remove_photo") is not None:
+        new_photo = None
+    else:
+        upload = form.get("photo")
+        if upload is not None and getattr(upload, "filename", ""):
+            if not settings.s3_enabled:
+                return await _render_form(
+                    request, key,
+                    error="Картинка недоступна: хранилище S3 не настроено.",
+                )
+            data = await upload.read()
+            if data:
+                ext = "png" if (upload.content_type or "").endswith("png") else "jpg"
+                try:
+                    new_photo = await storage.upload_photo(data, ext, prefix="screens")
+                except Exception as e:  # noqa: BLE001 — не валим сохранение из-за S3
+                    logger.error("Экраны (веб): не удалось загрузить фото в S3: {}", e)
+                    return await _render_form(
+                        request, key,
+                        error="Не удалось загрузить картинку в хранилище. Попробуйте ещё раз.",
+                    )
+
+    # При наличии картинки текст идёт подписью под фото — лимит 1024 символа.
+    if new_photo:
+        effective = raw if raw else default
+        if len(effective) > screens.CAPTION_LIMIT:
+            return await _render_form(
+                request, key,
+                error=(
+                    f"Текст экрана с картинкой не может быть длиннее "
+                    f"{screens.CAPTION_LIMIT} символов (сейчас {len(effective)}). "
+                    f"Сократите текст или уберите картинку."
+                ),
+            )
+
     await repo.upsert_screen_text(pool, key, body)
-    logger.info("Админка: экран «{}» сохранён", key)
+    if new_photo != current_photo:
+        await repo.upsert_screen_photo(pool, key, new_photo)
+
+    logger.info("Админка: экран «{}» сохранён (фото: {})", key, "да" if new_photo else "нет")
     return RedirectResponse(f"/screens/{key}?ok=1", status_code=303)

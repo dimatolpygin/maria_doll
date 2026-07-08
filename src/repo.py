@@ -569,6 +569,17 @@ async def upsert_screen_text(pool: asyncpg.Pool, key: str, body: str | None) -> 
     )
 
 
+async def upsert_screen_photo(pool: asyncpg.Pool, key: str, photo_url: str | None) -> None:
+    """Картинка экрана (URL из S3; NULL → без фото). Текст не трогаем."""
+    await pool.execute(
+        """
+        INSERT INTO screen_texts (key, photo_url) VALUES ($1, $2)
+        ON CONFLICT (key) DO UPDATE SET photo_url = EXCLUDED.photo_url, updated_at = now()
+        """,
+        key, photo_url,
+    )
+
+
 async def upsert_menu_button(
     pool: asyncpg.Pool, key: str, label: str | None, is_visible: bool
 ) -> None:
@@ -604,14 +615,16 @@ _AUDIENCE_WHERE = {
 
 
 async def create_broadcast(
-    pool: asyncpg.Pool, *, audience: str, body: str, created_by: str | None
+    pool: asyncpg.Pool, *, audience: str, body: str | None,
+    photos: list[dict] | None = None, created_by: str | None,
 ) -> int:
+    """Ставит рассылку в очередь. photos — список {"url": ...} (публичные S3-ссылки)."""
     return await pool.fetchval(
         """
-        INSERT INTO broadcasts (audience, body, created_by)
-        VALUES ($1, $2, $3) RETURNING id
+        INSERT INTO broadcasts (audience, body, photos, created_by)
+        VALUES ($1, $2, $3::json, $4) RETURNING id
         """,
-        audience, body, created_by,
+        audience, body, json.dumps(photos or [], ensure_ascii=False), created_by,
     )
 
 

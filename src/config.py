@@ -78,6 +78,18 @@ class Settings(BaseSettings):
     # Как часто бот забирает из очереди рассылки, созданные в админке (секунды).
     broadcast_check_interval_sec: int = 30
 
+    # ── S3-хранилище (фото в рассылках и на экранах бота, этап 6) ─────────────
+    # S3-совместимое хранилище (напр. Beget). Пусто — загрузка фото отключена,
+    # рассылки/экраны остаются текстовыми (см. свойство s3_enabled).
+    s3_endpoint: str = ""
+    s3_region: str = ""
+    s3_bucket: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    # Базовый публичный URL раздачи (если отличается от endpoint). Итоговая ссылка —
+    # f"{s3_public_base_url or s3_endpoint}/{s3_bucket}/{key}".
+    s3_public_base_url: str = ""
+
     # ── Прочее ───────────────────────────────────────────────────────────────
     log_level: str = "INFO"
 
@@ -88,6 +100,11 @@ class Settings(BaseSettings):
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", v):
             raise ValueError(f"Недопустимое имя схемы: {v}")
         return v
+
+    @property
+    def s3_enabled(self) -> bool:
+        """Настроено ли S3-хранилище (иначе загрузка фото отключена)."""
+        return bool(self.s3_endpoint and self.s3_bucket and self.s3_access_key)
 
     @property
     def admin_id_list(self) -> list[int]:

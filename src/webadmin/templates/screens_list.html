@@ -19,6 +19,7 @@
         <td>{{ (s.body[:120] + '…') if s.body and s.body|length > 120 else s.body }}</td>
         <td class="nowrap">
           {% if s.custom %}<span class="badge badge-blue">изменён</span>{% else %}<span class="muted">по умолчанию</span>{% endif %}
+          {% if s.photo_url %} <span class="badge badge-green">фото</span>{% endif %}
         </td>
         <td class="nowrap"><a class="btn btn-sm btn-light" href="/screens/{{ s.key }}">Редактировать</a></td>
       </tr>
