@@ -63,6 +63,30 @@ def sub_ended_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def reminder_early_kb() -> InlineKeyboardMarkup:
+    """Напоминание «осталось N»: продлить · моя подписка."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Продлить подписку", callback_data=NAV_RENEW))
+    b.row(InlineKeyboardButton(text="Моя подписка", callback_data=NAV_MYSUB))
+    return b.as_markup()
+
+
+def reminder_soon_kb() -> InlineKeyboardMarkup:
+    """Напоминание «завтра заканчивается»: продлить сейчас · поддержка."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Продлить сейчас", callback_data=NAV_RENEW))
+    b.row(InlineKeyboardButton(text="Поддержка", callback_data=NAV_SUPPORT))
+    return b.as_markup()
+
+
+def reminder_last_kb() -> InlineKeyboardMarkup:
+    """Напоминание «последний день»: продлить · поддержка."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Продлить подписку", callback_data=NAV_RENEW))
+    b.row(InlineKeyboardButton(text="Поддержка", callback_data=NAV_SUPPORT))
+    return b.as_markup()
+
+
 def mysub_kb() -> InlineKeyboardMarkup:
     """Клавиатура экрана «Моя подписка»: чат (если задан) + меню."""
     b = InlineKeyboardBuilder()

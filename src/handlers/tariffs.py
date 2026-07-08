@@ -38,11 +38,26 @@ async def _edit(cb: CallbackQuery, text: str, markup) -> None:
 # ── Экран выбора тарифа ───────────────────────────────────────────────────────
 @router.callback_query(F.data.in_({kb.NAV_JOIN, kb.NAV_TARIFF}))
 async def show_tariffs(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
-    # Уже оплатившим выбор тарифа не показываем (появится «Моя подписка», этап 3).
+    # Уже оплатившим первичный выбор тарифа не показываем (у них — «Моя подписка»
+    # и «Продлить», этапы 3–4). Для продления есть отдельный вход — NAV_RENEW.
     if await repo.get_active_subscription(pool, cb.from_user.id) is not None:
         await cb.answer("У тебя уже есть активная подписка.", show_alert=True)
         return
+    await _render_tariffs(cb, pool)
 
+
+@router.callback_query(F.data == kb.NAV_RENEW)
+async def show_tariffs_renew(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
+    """Продление подписки: тот же выбор тарифа, но доступен активным подписчикам.
+
+    Оплата продлевает доступ от текущей даты окончания (services.payments), место
+    не теряется. Guard кика в run_expiry_check не тронет продлившего.
+    """
+    await _render_tariffs(cb, pool)
+
+
+async def _render_tariffs(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
+    """Общий рендер экрана тарифов (для первичной покупки и продления)."""
     await repo.set_fsm_state(pool, cb.from_user.id, "screen:tariffs")
     items = await tariffs.get_active_tariffs(pool)
     if not items:
@@ -87,11 +102,9 @@ async def show_summary(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
 # ── Создание платежа Продамус и выдача ссылки на оплату ───────────────────────
 @router.callback_query(F.data.startswith("pay:create:"))
 async def pay_create(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
-    # Повторная защита: у оплатившего платёж не создаём.
-    if await repo.get_active_subscription(pool, cb.from_user.id) is not None:
-        await cb.answer("У тебя уже есть активная подписка.", show_alert=True)
-        return
-
+    # Активные подписчики сюда попадают только через «Продлить» (NAV_RENEW):
+    # платёж-продление разрешён, доступ продлится от текущей даты окончания
+    # (см. repo.activate_payment). Первичный вход для активных закрыт в show_tariffs.
     tariff_id = int(cb.data.split(":", 2)[2])
     result = await start_payment_safe(pool, cb.from_user.id, tariff_id)
     if result is None:

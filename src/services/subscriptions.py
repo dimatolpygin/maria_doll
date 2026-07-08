@@ -49,6 +49,14 @@ async def run_expiry_check(pool: asyncpg.Pool, bot: Bot) -> None:
     for row in expired:
         tg_id = row["tg_id"]
         try:
+            # Продлившийся пользователь: истекла старая подписка, но есть новая
+            # активная — из группы не кикаем и «подписка закончилась» не шлём.
+            if await repo.get_active_subscription(pool, tg_id) is not None:
+                logger.info(
+                    f"↪️ Подписка #{row['id']} истекла, но у tg_id={tg_id} есть "
+                    f"действующая (продление) — доступ сохраняем"
+                )
+                continue
             await kick_from_group(bot, tg_id)
             await _notify_ended(bot, tg_id)
             logger.info(f"🔚 Подписка #{row['id']} завершена (tg_id={tg_id})")

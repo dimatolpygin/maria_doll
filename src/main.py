@@ -21,7 +21,7 @@ from .db import close_pool, init_pool
 from .handlers import get_main_router
 from .logger import setup_logging
 from .middlewares import LoggingMiddleware
-from .services import subscriptions
+from .services import reminders, subscriptions
 from .webapp import start_webhook_server
 
 
@@ -62,6 +62,16 @@ async def main() -> None:
         max_instances=1,
         coalesce=True,
     )
+    # Напоминания о продлении (этап 4): early/soon/last по порогам из bot_settings.
+    scheduler.add_job(
+        reminders.run_reminder_check,
+        "interval",
+        minutes=settings.reminder_check_interval_min,
+        args=[pool, bot],
+        id="reminder_check",
+        max_instances=1,
+        coalesce=True,
+    )
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
@@ -74,7 +84,8 @@ async def main() -> None:
         allowed = dp.resolve_used_update_types()
         log.info(
             f"✅ Бот @{me.username} запущен (polling); проверка окончаний каждые "
-            f"{settings.expiry_check_interval_min} мин; апдейты: {allowed}"
+            f"{settings.expiry_check_interval_min} мин; напоминания каждые "
+            f"{settings.reminder_check_interval_min} мин; апдейты: {allowed}"
         )
         await dp.start_polling(bot, allowed_updates=allowed)
     finally:

@@ -158,7 +158,20 @@ async def activate_payment(
                 return sub, False
 
             now = datetime.now(timezone.utc)
-            end = add_period(now, pay["months"], pay["unit"])
+            # Продление: если у пользователя есть действующая подписка, новый срок
+            # продолжает её от текущей end_date — оплаченные дни не теряются. Иначе
+            # (первичная покупка) отсчёт от now. start_date = момент оплаты (для показа).
+            base_row = await conn.fetchrow(
+                """
+                SELECT max(end_date) AS end_date FROM subscriptions
+                WHERE tg_id = $1 AND status = 'active' AND end_date > now()
+                """,
+                pay["tg_id"],
+            )
+            base = now
+            if base_row is not None and base_row["end_date"] is not None:
+                base = max(now, base_row["end_date"])
+            end = add_period(base, pay["months"], pay["unit"])
             await conn.execute(
                 """
                 UPDATE payments
@@ -223,3 +236,67 @@ async def expire_due_subscriptions(pool: asyncpg.Pool) -> list[asyncpg.Record]:
         RETURNING id, tg_id
         """
     )
+
+
+# ── Рантайм-настройки (bot_settings) — правятся из админки на лету (этап 4/6) ──
+async def get_settings(pool: asyncpg.Pool, keys: list[str]) -> dict[str, str]:
+    """Значения настроек по списку ключей (отсутствующие ключи просто не попадут)."""
+    rows = await pool.fetch(
+        "SELECT key, value FROM bot_settings WHERE key = ANY($1::text[])", keys
+    )
+    return {r["key"]: r["value"] for r in rows}
+
+
+async def set_setting(pool: asyncpg.Pool, key: str, value: str) -> None:
+    await pool.execute(
+        """
+        INSERT INTO bot_settings(key, value)
+        VALUES($1, $2)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+        """,
+        key, value,
+    )
+
+
+# ── Напоминания о продлении (этап 4) ──────────────────────────────────────────
+async def get_subscriptions_for_reminders(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    """Активные ещё не истёкшие подписки + уже отправленные по ним типы напоминаний.
+
+    Возвращает строки с полями подписки/пользователя и массивом `sent` (типы
+    напоминаний, уже отправленные по этой подписке) — джоб по нему решает, что
+    ещё нужно отправить.
+    """
+    return await pool.fetch(
+        """
+        SELECT s.id, s.tg_id, s.end_date, s.price, s.unit,
+               u.username, u.first_name,
+               COALESCE(
+                   array_agg(r.kind) FILTER (WHERE r.kind IS NOT NULL),
+                   ARRAY[]::text[]
+               ) AS sent
+        FROM subscriptions s
+        JOIN users u ON u.tg_id = s.tg_id
+        LEFT JOIN subscription_reminders r ON r.subscription_id = s.id
+        WHERE s.status = 'active' AND s.end_date > now()
+        GROUP BY s.id, u.username, u.first_name
+        """
+    )
+
+
+async def claim_reminder(pool: asyncpg.Pool, subscription_id: int, kind: str) -> bool:
+    """Атомарно «занимает» отправку напоминания (подписка, тип). True — занято нами.
+
+    INSERT ... ON CONFLICT DO NOTHING: если строка уже была (напоминание этого типа
+    отправлялось), вернётся False и сообщение повторно не уйдёт — защита от дублей
+    при повторных прогонах планировщика и гонке параллельных проходов.
+    """
+    row = await pool.fetchrow(
+        """
+        INSERT INTO subscription_reminders(subscription_id, kind)
+        VALUES($1, $2)
+        ON CONFLICT (subscription_id, kind) DO NOTHING
+        RETURNING subscription_id
+        """,
+        subscription_id, kind,
+    )
+    return row is not None

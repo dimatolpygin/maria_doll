@@ -56,6 +56,9 @@ async def start_payment(
     unit: str = tariff["unit"]
     amount: Decimal = tariff["price"]
     order_num = _order_num(tg_id)
+    # Продление, если у пользователя уже есть активная подписка (иначе первичная покупка).
+    is_renewal = await repo.get_active_subscription(pool, tg_id) is not None
+    kind = "renewal" if is_renewal else "purchase"
     product_name = f"Подписка в клуб — {texts.period_phrase(months, unit)}"
 
     params = prodamus.build_link_params(
@@ -82,9 +85,10 @@ async def start_payment(
         unit=unit,
         amount=amount,
         pay_url=pay_url,
+        kind=kind,
     )
     logger.info(
-        f"💳 Платёж создан: tg_id={tg_id}, {texts.period_phrase(months, unit)} = "
+        f"💳 Платёж создан ({kind}): tg_id={tg_id}, {texts.period_phrase(months, unit)} = "
         f"{fmt_price(amount)} ₽, order_num={order_num}"
     )
     return {
