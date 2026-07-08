@@ -111,16 +111,18 @@ async def create_payment(
     amount: Decimal,
     pay_url: str,
     kind: str = "purchase",
+    promo_id: int | None = None,
 ) -> asyncpg.Record:
     """Создаёт платёж в статусе pending и возвращает его запись."""
     return await pool.fetchrow(
         """
         INSERT INTO payments
-            (order_num, tg_id, tariff_id, months, unit, amount, pay_url, kind, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+            (order_num, tg_id, tariff_id, months, unit, amount, pay_url, kind,
+             promo_id, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
         RETURNING *
         """,
-        order_num, tg_id, tariff_id, months, unit, amount, pay_url, kind,
+        order_num, tg_id, tariff_id, months, unit, amount, pay_url, kind, promo_id,
     )
 
 
@@ -193,7 +195,48 @@ async def activate_payment(
                 pay["tg_id"], pay["id"], pay["tariff_id"], pay["amount"],
                 pay["months"], pay["unit"], now, end,
             )
+            # Промокод применён — фиксируем активацию (лимит/история) и инкрементим
+            # счётчик. Только при первой активации платежа (идемпотентно): повторный
+            # вебхук сюда не заходит (status уже 'succeeded' выше). Уникум (promo,tg)
+            # защищает от повторного учёта одним пользователем.
+            if pay["promo_id"] is not None:
+                claimed = await conn.fetchrow(
+                    """
+                    INSERT INTO promo_redemptions (promo_id, tg_id, payment_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (promo_id, tg_id) DO NOTHING
+                    RETURNING id
+                    """,
+                    pay["promo_id"], pay["tg_id"], pay["id"],
+                )
+                if claimed is not None:
+                    await conn.execute(
+                        "UPDATE promo_codes SET used_count = used_count + 1, "
+                        "updated_at = now() WHERE id = $1",
+                        pay["promo_id"],
+                    )
             return sub, True
+
+
+# ── Промокоды (этап 5) ────────────────────────────────────────────────────────
+async def get_promo_by_code(pool: asyncpg.Pool, code: str) -> asyncpg.Record | None:
+    """Промокод по нормализованному коду (или None)."""
+    return await pool.fetchrow("SELECT * FROM promo_codes WHERE code = $1", code)
+
+
+async def get_promo(pool: asyncpg.Pool, promo_id: int) -> asyncpg.Record | None:
+    return await pool.fetchrow("SELECT * FROM promo_codes WHERE id = $1", promo_id)
+
+
+async def user_redeemed_promo(
+    pool: asyncpg.Pool, promo_id: int, tg_id: int
+) -> bool:
+    """Применял ли пользователь этот промокод раньше (лимит: один код — одна активация)."""
+    row = await pool.fetchrow(
+        "SELECT 1 FROM promo_redemptions WHERE promo_id = $1 AND tg_id = $2",
+        promo_id, tg_id,
+    )
+    return row is not None
 
 
 # ── Подписки ──────────────────────────────────────────────────────────────────

@@ -91,6 +91,7 @@ async def show_summary(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
 
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="Перейти к оплате", callback_data=f"pay:create:{tariff['id']}"))
+    b.row(InlineKeyboardButton(text="Ввести промокод", callback_data=f"promo:enter:{tariff['id']}"))
     b.row(InlineKeyboardButton(text="Назад", callback_data=kb.NAV_TARIFF))
     await _edit(cb, texts.tariff_summary(months, unit, fmt_price(tariff["price"])), b.as_markup())
     logger.info(

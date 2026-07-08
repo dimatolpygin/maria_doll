@@ -26,7 +26,7 @@ from .. import repo, texts
 from ..config import settings
 from ..logger import logger
 from ..utils import fmt_price
-from . import prodamus, tariffs
+from . import prodamus, promo as promo_service, tariffs
 
 
 def _order_num(tg_id: int) -> str:
@@ -42,11 +42,12 @@ def _return_url() -> str:
 
 
 async def start_payment(
-    pool: asyncpg.Pool, *, tg_id: int, tariff_id: int
+    pool: asyncpg.Pool, *, tg_id: int, tariff_id: int, promo_id: int | None = None
 ) -> dict | None:
     """Создаёт платёж под выбранный тариф и возвращает ссылку на оплату.
 
-    None — если тариф не найден или Продамус не настроен (нет адреса payform).
+    promo_id — применённый промокод (сумма пересчитывается от цены тарифа); None —
+    обычная цена. Возвращает None, если тариф не найден или Продамус не настроен.
     """
     tariff = await tariffs.get_tariff(pool, tariff_id)
     if tariff is None or not settings.prodamus_form_url:
@@ -55,6 +56,11 @@ async def start_payment(
     months: int = tariff["months"]
     unit: str = tariff["unit"]
     amount: Decimal = tariff["price"]
+    # Промокод: пересчитываем сумму от цены тарифа (сервер не доверяет клиенту).
+    if promo_id is not None:
+        promo = await repo.get_promo(pool, promo_id)
+        if promo is not None:
+            amount = promo_service.compute_amount(promo, base_price=tariff["price"])
     order_num = _order_num(tg_id)
     # Продление, если у пользователя уже есть активная подписка (иначе первичная покупка).
     is_renewal = await repo.get_active_subscription(pool, tg_id) is not None
@@ -86,10 +92,11 @@ async def start_payment(
         amount=amount,
         pay_url=pay_url,
         kind=kind,
+        promo_id=promo_id,
     )
     logger.info(
-        f"💳 Платёж создан ({kind}): tg_id={tg_id}, {texts.period_phrase(months, unit)} = "
-        f"{fmt_price(amount)} ₽, order_num={order_num}"
+        f"💳 Платёж создан ({kind}{', промо' if promo_id else ''}): tg_id={tg_id}, "
+        f"{texts.period_phrase(months, unit)} = {fmt_price(amount)} ₽, order_num={order_num}"
     )
     return {
         "order_num": order_num,

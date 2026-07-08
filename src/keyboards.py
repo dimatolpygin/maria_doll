@@ -55,6 +55,32 @@ def to_menu_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def promo_enter_kb(tariff_id: int) -> InlineKeyboardMarkup:
+    """Экран ввода промокода: назад к сводке выбранного тарифа."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Назад", callback_data=f"buy:{tariff_id}"))
+    return b.as_markup()
+
+
+def promo_fail_kb(tariff_id: int) -> InlineKeyboardMarkup:
+    """Экран невалидного промокода: другой код · без промокода · назад."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Ввести другой код", callback_data=f"promo:enter:{tariff_id}"))
+    b.row(InlineKeyboardButton(text="К оплате без промокода", callback_data=f"pay:create:{tariff_id}"))
+    b.row(InlineKeyboardButton(text="Назад к тарифам", callback_data=NAV_TARIFF))
+    return b.as_markup()
+
+
+def promo_applied_kb(promo_id: int, tariff_id: int) -> InlineKeyboardMarkup:
+    """Сводка со скидкой: оплатить со скидкой · назад к тарифам."""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(
+        text="Оплатить со скидкой", callback_data=f"promo:buy:{promo_id}:{tariff_id}"
+    ))
+    b.row(InlineKeyboardButton(text="Назад к тарифам", callback_data=NAV_TARIFF))
+    return b.as_markup()
+
+
 def sub_ended_kb() -> InlineKeyboardMarkup:
     """Клавиатура уведомления «подписка закончилась»: вернуться / промокод."""
     b = InlineKeyboardBuilder()
