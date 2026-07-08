@@ -8,6 +8,13 @@ SQLAlchemy[asyncio]==2.0.36
 alembic==1.14.0
 watchfiles==1.0.3
 APScheduler==3.11.0
+# Веб-админка (этап 6): FastAPI + Jinja2, сервер uvicorn.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+jinja2==3.1.5
+python-multipart==0.0.20
+itsdangerous==2.2.0
 # aiohttp (транзитивно из aiogram) закреплён явно — на нём приёмник вебхука Продамуса.
-# APScheduler — фоновая проверка окончаний подписок (этап 3), напоминания (этап 4).
-# FastAPI/uvicorn/jinja2 — на этапе 6 (веб-админка).
+# APScheduler — фоновая проверка окончаний подписок (этап 3), напоминания (этап 4),
+#   рассылки из админки (этап 6).
+# python-multipart — разбор form-data в админке; itsdangerous — подпись cookie-сессии.

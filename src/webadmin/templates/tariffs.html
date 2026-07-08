@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Тарифы{% endblock %}
+{% block heading %}Тарифы{% endblock %}
+{% block content %}
+
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<p class="muted">Фиксированные тарифы подписки. Длительность (значение + единица),
+цена за весь период, необязательное название и порядок показа. Правки видны в боте
+сразу, без перезапуска. Выключенный тариф в боте не показывается.</p>
+
+<h2 class="section-title">Все тарифы</h2>
+{% if tariffs %}
+{# Формы правки/действий вынесены из таблицы — поля ссылаются на них через form="…". #}
+{% for t in tariffs %}
+  <form id="tf-save-{{ t.id }}" method="post" action="/tariffs/{{ t.id }}/save"></form>
+  <form id="tf-toggle-{{ t.id }}" method="post" action="/tariffs/{{ t.id }}/toggle"></form>
+  <form id="tf-del-{{ t.id }}" method="post" action="/tariffs/{{ t.id }}/delete"
+        onsubmit="return confirm('Удалить тариф «{{ t.label }}»? Он исчезнет из бота. Уже оформленные подписки и платежи сохранятся.');"></form>
+{% endfor %}
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Длительность</th><th>Цена, ₽</th><th>Название</th><th>Порядок</th><th>Статус</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for t in tariffs %}
+      <tr {% if not t.is_active %}class="row-hidden"{% endif %}>
+        <td class="nowrap">
+          <input form="tf-save-{{ t.id }}" type="number" name="months" min="1" step="1" value="{{ t.months }}" class="num-sm" required>
+          <select form="tf-save-{{ t.id }}" name="unit">
+            {% for u, lbl in units %}
+              <option value="{{ u }}"{% if u == t.unit %} selected{% endif %}>{{ lbl }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td class="nowrap"><input form="tf-save-{{ t.id }}" type="text" name="price" value="{{ t.price }}" style="width:90px" class="input" required></td>
+        <td><input form="tf-save-{{ t.id }}" type="text" name="title" value="{{ t.title }}" placeholder="авто" class="w-full"></td>
+        <td class="nowrap"><input form="tf-save-{{ t.id }}" type="number" name="sort_order" step="1" value="{{ t.sort_order }}" class="num-sm"></td>
+        <td class="nowrap">
+          {% if t.is_active %}<span class="dot-ok"></span>вкл{% else %}<span class="dot-off"></span>выкл{% endif %}
+        </td>
+        <td class="nowrap actions">
+          <button form="tf-save-{{ t.id }}" type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+          <button form="tf-toggle-{{ t.id }}" type="submit" class="btn btn-sm">{{ "Выключить" if t.is_active else "Включить" }}</button>
+          <button form="tf-del-{{ t.id }}" type="submit" class="btn btn-sm btn-danger">Удалить</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">Пока нет ни одного тарифа.</div>
+{% endif %}
+
+<h2 class="section-title">Добавить тариф</h2>
+<form method="post" action="/tariffs/create" class="card">
+  <div class="form-grid">
+    <div>
+      <label class="price-label">Длительность</label>
+      <input type="number" name="months" min="1" step="1" value="1" class="input w-full" required>
+    </div>
+    <div>
+      <label class="price-label">Единица</label>
+      <select name="unit" class="input w-full">
+        {% for u, lbl in units %}<option value="{{ u }}">{{ lbl }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="price-label">Цена, ₽</label>
+      <input type="text" name="price" placeholder="990" class="input w-full" required>
+    </div>
+    <div>
+      <label class="price-label">Порядок показа</label>
+      <input type="number" name="sort_order" step="1" value="0" class="input w-full">
+    </div>
+    <div class="field-wide">
+      <label class="price-label">Название (необязательно)</label>
+      <input type="text" name="title" placeholder="пусто — сгенерится из длительности" class="input w-full">
+    </div>
+  </div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Создать тариф</button></div>
+</form>
+
+{% endblock %}

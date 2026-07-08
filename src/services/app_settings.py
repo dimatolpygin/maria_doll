@@ -18,6 +18,8 @@ KEY_UNIT = "reminder_unit"
 KEY_EARLY = "reminder_early_offset"
 KEY_SOON = "reminder_soon_offset"
 KEY_LAST = "reminder_last_offset"
+# Ссылка поддержки (кнопка «Перейти»), редактируемая из админки (этап 6).
+KEY_SUPPORT = "support_url"
 
 # kind → (ключ в bot_settings, атрибут .env-дефолта).
 _OFFSET_KEYS = {
@@ -50,3 +52,14 @@ async def set_reminder_unit(pool: asyncpg.Pool, unit: str) -> None:
 async def set_reminder_offset(pool: asyncpg.Pool, kind: str, value: int) -> None:
     store_key = _OFFSET_KEYS[kind][0]
     await repo.set_setting(pool, store_key, str(value))
+
+
+async def support_url(pool: asyncpg.Pool) -> str:
+    """Ссылка поддержки: из bot_settings, иначе .env-дефолт (config.settings)."""
+    stored = await repo.get_settings(pool, [KEY_SUPPORT])
+    return stored.get(KEY_SUPPORT) or settings.support_url
+
+
+async def set_support_url(pool: asyncpg.Pool, url: str) -> None:
+    """Сохранить ссылку поддержки (пустая строка → кнопка «Перейти» скрыта)."""
+    await repo.set_setting(pool, KEY_SUPPORT, url)

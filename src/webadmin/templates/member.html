@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Участник{% endblock %}
+{% block heading %}Участник · id {{ member.tg_id }}{% endblock %}
+{% block content %}
+
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<p class="page-actions"><a class="btn btn-light btn-sm" href="/subscriptions">← К подпискам</a></p>
+
+<div class="panel">
+  <h2 class="panel-title">
+    {{ member.first_name or '—' }}
+    {%- if member.username %} <span class="muted">@{{ member.username }}</span>{% endif %}
+  </h2>
+  {% if not member.found %}
+  <p class="panel-text">Пользователь с таким Telegram ID ещё не запускал бота и не имеет подписок.
+  Можно выдать подписку вручную — бот подхватит её по заявке на вступление.</p>
+  {% endif %}
+  <p class="muted">
+    Telegram ID: <code>{{ member.tg_id }}</code>
+    {% if member.email %} · email: {{ member.email }}{% endif %}
+    {% if member.is_blocked %} · <span class="badge badge-danger">заблокировал бота</span>{% endif %}
+  </p>
+
+  {% if member.has_active %}
+    <p><span class="badge badge-green">Активная подписка</span></p>
+    <div class="table-wrap">
+      <table class="table">
+        <tbody>
+          <tr><th>Цена</th><td>{{ member.active.price }}</td></tr>
+          <tr><th>Период</th><td>{{ member.active.period }}</td></tr>
+          <tr><th>Начало</th><td>{{ member.active.start }}</td></tr>
+          <tr><th>Окончание</th><td>{{ member.active.end }}</td></tr>
+          <tr><th>Осталось</th><td>{{ member.active.remaining }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="/subscriptions/member/{{ member.tg_id }}/annul" style="margin-top:14px"
+          onsubmit="return confirm('Аннулировать активную подписку? Доступ закроется, бот удалит участника из группы.');">
+      <button type="submit" class="btn btn-danger">Аннулировать подписку</button>
+    </form>
+  {% elif member.last %}
+    <p><span class="badge badge-blue">Подписки сейчас нет</span> · последняя:</p>
+    <div class="table-wrap">
+      <table class="table">
+        <tbody>
+          <tr><th>Цена</th><td>{{ member.last.price }}</td></tr>
+          <tr><th>Период</th><td>{{ member.last.period }}</td></tr>
+          <tr><th>Окончание</th><td>{{ member.last.end }}</td></tr>
+          <tr><th>Статус</th><td>{{ member.last.status }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="panel-text">Подписок в истории нет.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2 class="panel-title">Выдать / продлить подписку вручную</h2>
+  <form method="post" action="/subscriptions/member/add" class="inline-form">
+    <input type="hidden" name="tg_id" value="{{ member.tg_id }}">
+    <input type="number" name="value" min="1" step="1" value="1" class="num-sm" required>
+    <select name="unit">
+      {% for u, lbl in unit_labels.items() %}
+        <option value="{{ u }}"{% if u == 'month' %} selected{% endif %}>{{ lbl }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary">Выдать</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2 class="panel-title">История действий</h2>
+  {% if history %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Действие</th><th>Когда</th></tr></thead>
+      <tbody>
+      {% for h in history %}
+        <tr><td>{{ h.event }}</td><td class="nowrap">{{ h.when }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="panel-text">Записей в журнале действий нет.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

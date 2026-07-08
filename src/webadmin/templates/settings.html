@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block heading %}Настройки{% endblock %}
+{% block content %}
+
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<h2 class="section-title">Напоминания о продлении</h2>
+<form method="post" action="/settings/reminders" class="card">
+  <p class="muted">За сколько целых единиц до конца подписки слать каждое напоминание
+  (0 — в последнюю единицу). Бот применяет правки сразу, без рестарта; проверка идёт
+  каждые {{ check_interval }} мин (частота — в .env).</p>
+  <div class="form-grid">
+    <div>
+      <label class="price-label">Единица порогов</label>
+      <select name="unit" class="input w-full">
+        {% for u, lbl in unit_labels.items() %}
+          <option value="{{ u }}"{% if u == unit %} selected{% endif %}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% for kind, lbl in rem_kinds %}
+    <div>
+      <label class="price-label">{{ lbl }}</label>
+      <input type="number" name="{{ kind }}" min="0" step="1" value="{{ offsets[kind] }}" class="input w-full" required>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Сохранить напоминания</button></div>
+</form>
+
+<h2 class="section-title">Ссылка поддержки</h2>
+<form method="post" action="/settings/support" class="card">
+  <p class="muted">Куда ведёт кнопка «Перейти» в разделе «Поддержка» у пользователя.
+  Можно указать <code>@username</code> или ссылку <code>https://t.me/…</code>. Пусто —
+  кнопка скрыта. Применяется сразу.</p>
+  <div class="inline-form">
+    <span class="field-label">Аккаунт поддержки:</span>
+    <input type="text" name="url" value="{{ support_url or '' }}" placeholder="@support или https://t.me/support" class="input" style="min-width:340px">
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </div>
+  {% if support_url %}
+    <p class="muted">Текущая: <code>{{ support_url }}</code></p>
+  {% else %}
+    <p class="muted">Ссылка не задана — кнопка «Перейти» у пользователя скрыта.</p>
+  {% endif %}
+</form>
+
+<h2 class="section-title">Кто на каком экране</h2>
+<div class="card">
+  <p class="muted">Последний экран, на котором пользователь остановился (свежие сверху).
+  Чем больше «назад» — тем дольше человек не возвращался. Обновить — перезагрузите страницу.</p>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Экран</th><th>Пользователь</th><th>ID</th><th>Когда</th></tr></thead>
+      <tbody>
+      {% if not fsm %}
+        <tr><td colspan="4" class="muted">Сейчас никто не в процессе.</td></tr>
+      {% endif %}
+      {% for f in fsm %}
+        <tr>
+          <td><b>{{ f.screen }}</b></td>
+          <td class="nowrap">{{ f.username }} {{ f.name }}</td>
+          <td class="nowrap"><code>{{ f.tg_id }}</code></td>
+          <td class="nowrap">{{ f.ago }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

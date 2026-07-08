@@ -12,8 +12,8 @@ import asyncpg
 
 from .. import keyboards as kb
 from .. import repo
-from ..config import settings
 from ..logger import logger
+from ..services import app_settings
 from ..services import menu
 from ..services import screens
 
@@ -71,8 +71,8 @@ async def nav_rules(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
 @router.callback_query(F.data == kb.NAV_SUPPORT)
 async def nav_support(cb: CallbackQuery, pool: asyncpg.Pool, state: FSMContext) -> None:
     await state.clear()
-    # Ссылка поддержки — из .env (на этапе 6 переедет в редактируемые настройки).
-    url = settings.support_url
+    # Ссылка поддержки — из редактируемых настроек (bot_settings), с .env-fallback.
+    url = await app_settings.support_url(pool)
     key = "support" if url else "support_no_link"
     await _show(cb, pool, "support", key, kb.support_kb(url or None))
 

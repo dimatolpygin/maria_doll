@@ -34,6 +34,14 @@ async def upsert_user(
     )
 
 
+async def set_user_blocked(pool: asyncpg.Pool, tg_id: int, blocked: bool) -> None:
+    """Отметка «заблокировал бота» (ставится, когда Telegram вернул Forbidden)."""
+    await pool.execute(
+        "UPDATE users SET is_blocked = $2, updated_at = now() WHERE tg_id = $1",
+        tg_id, blocked,
+    )
+
+
 # ── FSM-состояние (где пользователь находится/застрял) ────────────────────────
 async def set_fsm_state(pool: asyncpg.Pool, tg_id: int, state: str) -> None:
     await pool.execute(
@@ -343,3 +351,314 @@ async def claim_reminder(pool: asyncpg.Pool, subscription_id: int, kind: str) ->
         subscription_id, kind,
     )
     return row is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Запросы веб-админки (этап 6). Веб-процесс отдельный от бота, но ходит в ту же БД
+# через общий пул. Фактические действия в Telegram (кик из группы, рассылка) делает
+# бот — веб только пишет в общую БД, бот подхватывает фоновыми джобами.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Подписки / участники ──────────────────────────────────────────────────────
+async def list_active_subscriptions(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    """Активные (не истёкшие) подписки с данными пользователя — для списка в админке."""
+    return await pool.fetch(
+        """
+        SELECT s.id, s.tg_id, s.price, s.end_date, s.months, s.unit,
+               u.username, u.first_name
+        FROM subscriptions s
+        JOIN users u ON u.tg_id = s.tg_id
+        WHERE s.status = 'active' AND s.end_date > now()
+        ORDER BY s.end_date
+        """
+    )
+
+
+async def get_subscription(pool: asyncpg.Pool, sub_id: int) -> asyncpg.Record | None:
+    return await pool.fetchrow("SELECT * FROM subscriptions WHERE id = $1", sub_id)
+
+
+async def set_subscription_end_date(
+    pool: asyncpg.Pool, sub_id: int, end_date: datetime
+) -> None:
+    """Ручное продление из админки: двигаем окончание активной подписки."""
+    await pool.execute(
+        "UPDATE subscriptions SET end_date = $2 WHERE id = $1", sub_id, end_date
+    )
+
+
+async def disable_subscription_via_expiry(
+    pool: asyncpg.Pool, sub_id: int
+) -> int | None:
+    """Отключение подписки из админки: ставим окончание «сейчас».
+
+    Саму подписку не помечаем expired и из группы не кикаем прямо здесь — это сделает
+    фоновая проверка окончаний бота (`expire_due_subscriptions` + кик) на ближайшем
+    проходе. Возвращает tg_id отключённого (или None, если подписки нет/уже неактивна).
+    """
+    row = await pool.fetchrow(
+        """
+        UPDATE subscriptions SET end_date = now()
+        WHERE id = $1 AND status = 'active' AND end_date > now()
+        RETURNING tg_id
+        """,
+        sub_id,
+    )
+    return row["tg_id"] if row else None
+
+
+async def add_subscription(
+    pool: asyncpg.Pool,
+    tg_id: int,
+    tariff_id: int | None,
+    price: Decimal,
+    months: int,
+    unit: str,
+    end_date: datetime,
+    *,
+    status: str = "active",
+) -> int:
+    """Ручная выдача подписки из админки (без платежа). Возвращает id подписки."""
+    return await pool.fetchval(
+        """
+        INSERT INTO subscriptions
+            (tg_id, tariff_id, price, months, unit, start_date, end_date, status)
+        VALUES ($1, $2, $3, $4, $5, now(), $6, $7)
+        RETURNING id
+        """,
+        tg_id, tariff_id, price, months, unit, end_date, status,
+    )
+
+
+async def get_user(pool: asyncpg.Pool, tg_id: int) -> asyncpg.Record | None:
+    return await pool.fetchrow(
+        "SELECT tg_id, username, first_name, email, is_blocked FROM users WHERE tg_id = $1",
+        tg_id,
+    )
+
+
+async def search_users(pool: asyncpg.Pool, term: str) -> list[asyncpg.Record]:
+    """Поиск пользователей по username/имени (частичное совпадение, до 25)."""
+    like = f"%{term}%"
+    return await pool.fetch(
+        """
+        SELECT tg_id, username, first_name FROM users
+        WHERE username ILIKE $1 OR first_name ILIKE $1
+        ORDER BY first_name NULLS LAST
+        LIMIT 25
+        """,
+        like,
+    )
+
+
+async def get_user_events(
+    pool: asyncpg.Pool, tg_id: int, limit: int = 20
+) -> list[asyncpg.Record]:
+    return await pool.fetch(
+        "SELECT event, created_at FROM user_events WHERE tg_id = $1 "
+        "ORDER BY id DESC LIMIT $2",
+        tg_id, limit,
+    )
+
+
+async def get_fsm_stuck(pool: asyncpg.Pool, limit: int = 30) -> list[asyncpg.Record]:
+    """Последние FSM-состояния пользователей (свежие сверху) — «кто на каком экране»."""
+    return await pool.fetch(
+        """
+        SELECT f.tg_id, f.state, f.updated_at, u.username, u.first_name
+        FROM fsm_states f
+        LEFT JOIN users u ON u.tg_id = f.tg_id
+        WHERE f.state IS NOT NULL
+        ORDER BY f.updated_at DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+
+
+# ── Тарифы (фиксированные) — CRUD из админки ──────────────────────────────────
+async def get_all_tariffs(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    """Все тарифы (включая выключенные) в порядке показа."""
+    return await pool.fetch(
+        "SELECT id, months, unit, price, title, is_active, sort_order "
+        "FROM tariffs ORDER BY sort_order, months"
+    )
+
+
+async def create_tariff(
+    pool: asyncpg.Pool, *, months: int, unit: str, price: Decimal,
+    title: str | None, sort_order: int,
+) -> int:
+    return await pool.fetchval(
+        """
+        INSERT INTO tariffs (months, unit, price, title, sort_order)
+        VALUES ($1, $2, $3, $4, $5) RETURNING id
+        """,
+        months, unit, price, title, sort_order,
+    )
+
+
+async def update_tariff(
+    pool: asyncpg.Pool, tariff_id: int, *, months: int, unit: str, price: Decimal,
+    title: str | None, is_active: bool, sort_order: int,
+) -> None:
+    await pool.execute(
+        """
+        UPDATE tariffs
+        SET months = $2, unit = $3, price = $4, title = $5,
+            is_active = $6, sort_order = $7
+        WHERE id = $1
+        """,
+        tariff_id, months, unit, price, title, is_active, sort_order,
+    )
+
+
+async def set_tariff_active(pool: asyncpg.Pool, tariff_id: int, active: bool) -> None:
+    await pool.execute(
+        "UPDATE tariffs SET is_active = $2 WHERE id = $1", tariff_id, active
+    )
+
+
+async def delete_tariff(pool: asyncpg.Pool, tariff_id: int) -> bool:
+    res = await pool.execute("DELETE FROM tariffs WHERE id = $1", tariff_id)
+    return res.endswith("1")
+
+
+# ── Промокоды — CRUD из админки ───────────────────────────────────────────────
+async def get_all_promos(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    return await pool.fetch("SELECT * FROM promo_codes ORDER BY id DESC")
+
+
+async def create_promo(
+    pool: asyncpg.Pool, *, code: str, kind: str, value: Decimal,
+    max_activations: int | None, expires_at: datetime | None,
+) -> int | None:
+    """Создаёт промокод. None — если код уже существует (гонка/дубль)."""
+    return await pool.fetchval(
+        """
+        INSERT INTO promo_codes (code, kind, value, max_activations, expires_at)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (code) DO NOTHING
+        RETURNING id
+        """,
+        code, kind, value, max_activations, expires_at,
+    )
+
+
+async def set_promo_active(pool: asyncpg.Pool, promo_id: int, active: bool) -> None:
+    await pool.execute(
+        "UPDATE promo_codes SET is_active = $2, updated_at = now() WHERE id = $1",
+        promo_id, active,
+    )
+
+
+async def delete_promo(pool: asyncpg.Pool, promo_id: int) -> bool:
+    res = await pool.execute("DELETE FROM promo_codes WHERE id = $1", promo_id)
+    return res.endswith("1")
+
+
+# ── Экраны и кнопки — правки из админки ───────────────────────────────────────
+async def upsert_screen_text(pool: asyncpg.Pool, key: str, body: str | None) -> None:
+    """Своя версия текста экрана (NULL body → дефолт из реестра). Фото не трогаем."""
+    await pool.execute(
+        """
+        INSERT INTO screen_texts (key, body) VALUES ($1, $2)
+        ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = now()
+        """,
+        key, body,
+    )
+
+
+async def upsert_menu_button(
+    pool: asyncpg.Pool, key: str, label: str | None, is_visible: bool
+) -> None:
+    await pool.execute(
+        """
+        INSERT INTO menu_buttons (key, label, is_visible) VALUES ($1, $2, $3)
+        ON CONFLICT (key) DO UPDATE
+        SET label = EXCLUDED.label, is_visible = EXCLUDED.is_visible, updated_at = now()
+        """,
+        key, label, is_visible,
+    )
+
+
+# ── Рассылки (очередь веб → бот-джоб) ─────────────────────────────────────────
+AUDIENCE_ALL = "all"
+AUDIENCE_ACTIVE = "active"
+AUDIENCE_FORMER = "former"
+AUDIENCE_NEVER = "never"
+
+# Сегмент → SQL-условие отбора tg_id из users (u — алиас users).
+_AUDIENCE_WHERE = {
+    AUDIENCE_ALL: "TRUE",
+    AUDIENCE_ACTIVE:
+        "EXISTS (SELECT 1 FROM subscriptions s WHERE s.tg_id = u.tg_id "
+        "AND s.status = 'active' AND s.end_date > now())",
+    AUDIENCE_FORMER:
+        "EXISTS (SELECT 1 FROM subscriptions s WHERE s.tg_id = u.tg_id) "
+        "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.tg_id = u.tg_id "
+        "AND s.status = 'active' AND s.end_date > now())",
+    AUDIENCE_NEVER:
+        "NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.tg_id = u.tg_id)",
+}
+
+
+async def create_broadcast(
+    pool: asyncpg.Pool, *, audience: str, body: str, created_by: str | None
+) -> int:
+    return await pool.fetchval(
+        """
+        INSERT INTO broadcasts (audience, body, created_by)
+        VALUES ($1, $2, $3) RETURNING id
+        """,
+        audience, body, created_by,
+    )
+
+
+async def list_broadcasts(pool: asyncpg.Pool, limit: int = 50) -> list[asyncpg.Record]:
+    return await pool.fetch(
+        "SELECT * FROM broadcasts ORDER BY id DESC LIMIT $1", limit
+    )
+
+
+async def claim_next_broadcast(pool: asyncpg.Pool) -> asyncpg.Record | None:
+    """Атомарно берёт одну pending-рассылку в работу (pending → sending).
+
+    SKIP LOCKED защищает от двойной отправки при гонке проходов джоба.
+    """
+    return await pool.fetchrow(
+        """
+        UPDATE broadcasts SET status = 'sending', started_at = now()
+        WHERE id = (
+            SELECT id FROM broadcasts WHERE status = 'pending'
+            ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+        """
+    )
+
+
+async def broadcast_recipients(pool: asyncpg.Pool, audience: str) -> list[int]:
+    """Список tg_id получателей рассылки по сегменту (только не заблокировавшие бота)."""
+    where = _AUDIENCE_WHERE.get(audience, "FALSE")
+    rows = await pool.fetch(
+        f"SELECT u.tg_id FROM users u WHERE u.is_blocked = false AND ({where})"
+    )
+    return [r["tg_id"] for r in rows]
+
+
+async def set_broadcast_total(pool: asyncpg.Pool, bid: int, total: int) -> None:
+    await pool.execute("UPDATE broadcasts SET total = $2 WHERE id = $1", bid, total)
+
+
+async def finish_broadcast(
+    pool: asyncpg.Pool, bid: int, *, sent: int, blocked: int, failed: int
+) -> None:
+    await pool.execute(
+        """
+        UPDATE broadcasts
+        SET status = 'done', sent = $2, blocked = $3, failed = $4, finished_at = now()
+        WHERE id = $1
+        """,
+        bid, sent, blocked, failed,
+    )

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Экраны бота{% endblock %}
+{% block heading %}Экраны бота{% endblock %}
+{% block content %}
+
+{% if ok %}<div class="alert alert-ok">Экран сохранён.</div>{% endif %}
+
+<p class="muted">Тексты инфо-экранов бота (приветствие, меню, что внутри, правила,
+поддержка). Правки применяются в боте сразу, без перезапуска. Пустой текст вернёт
+вариант по умолчанию. Подписи кнопок правятся в разделе «Кнопки меню».</p>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Экран</th><th>Текст</th><th>Статус</th><th></th></tr></thead>
+    <tbody>
+    {% for s in screens %}
+      <tr>
+        <td class="nowrap"><b>{{ s.title }}</b><div class="muted">{{ s.hint }}</div></td>
+        <td>{{ (s.body[:120] + '…') if s.body and s.body|length > 120 else s.body }}</td>
+        <td class="nowrap">
+          {% if s.custom %}<span class="badge badge-blue">изменён</span>{% else %}<span class="muted">по умолчанию</span>{% endif %}
+        </td>
+        <td class="nowrap"><a class="btn btn-sm btn-light" href="/screens/{{ s.key }}">Редактировать</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

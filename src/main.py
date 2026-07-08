@@ -21,7 +21,7 @@ from .db import close_pool, init_pool
 from .handlers import get_main_router
 from .logger import setup_logging
 from .middlewares import LoggingMiddleware
-from .services import reminders, subscriptions
+from .services import broadcasts, reminders, subscriptions
 from .webapp import start_webhook_server
 
 
@@ -69,6 +69,16 @@ async def main() -> None:
         minutes=settings.reminder_check_interval_min,
         args=[pool, bot],
         id="reminder_check",
+        max_instances=1,
+        coalesce=True,
+    )
+    # Рассылки из веб-админки (этап 6): забираем pending-задачи из очереди broadcasts.
+    scheduler.add_job(
+        broadcasts.run_broadcast_check,
+        "interval",
+        seconds=settings.broadcast_check_interval_sec,
+        args=[pool, bot],
+        id="broadcast_check",
         max_instances=1,
         coalesce=True,
     )

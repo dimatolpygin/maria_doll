@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Рассылка{% endblock %}
+{% block heading %}Рассылка{% endblock %}
+{% block content %}
+
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<p class="muted">Отправьте сообщение по сегменту аудитории. Поддерживается HTML-разметка
+Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</code>).
+Веб-панель ставит рассылку в очередь — бот отправит её в ближайшее время и покажет
+счётчики ниже. Заблокировавшие бота пропускаются.</p>
+
+<h3 class="section-title">Новая рассылка</h3>
+<form method="post" action="/broadcasts/create" class="card">
+  <div class="field" style="margin-bottom:12px">
+    <span class="field-label">Кому</span>
+    <select name="audience" class="input" style="max-width:340px">
+      {% for a, lbl in audiences %}<option value="{{ a }}">{{ lbl }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <span class="field-label">Текст сообщения</span>
+    <textarea class="input textarea" name="body" rows="8" placeholder="Текст рассылки…" required></textarea>
+  </div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Отправить рассылку</button></div>
+</form>
+
+<h3 class="section-title">Последние рассылки</h3>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>#</th><th>Кому</th><th>Текст</th><th>Статус</th><th>Отправлено</th><th>Создана</th></tr>
+    </thead>
+    <tbody>
+    {% if not rows %}
+      <tr><td colspan="6" class="muted">Рассылок ещё не было.</td></tr>
+    {% endif %}
+    {% for b in rows %}
+      <tr>
+        <td class="nowrap"><b>#{{ b.id }}</b></td>
+        <td class="nowrap">{{ b.audience }}</td>
+        <td>{{ b.preview }}</td>
+        <td class="nowrap">{{ b.status }}</td>
+        <td class="nowrap">
+          {% if b.is_done %}{{ b.sent }} / {{ b.total }}
+            {% if b.blocked %}· забл. {{ b.blocked }}{% endif %}
+            {% if b.failed %}· ошибок {{ b.failed }}{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td class="nowrap">{{ b.created_at }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ screen.title }}{% endblock %}
+{% block heading %}Экран · {{ screen.title }}{% endblock %}
+{% block content %}
+
+{% if ok %}<div class="alert alert-ok">Текст экрана сохранён — бот применит сразу.</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<p class="page-actions"><a class="btn btn-light btn-sm" href="/screens">← Ко всем экранам</a></p>
+<p class="muted">{{ screen.hint }} Поддерживается HTML-разметка Telegram
+(<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</code> и т.п.).
+Пустое поле или текст по умолчанию — бот покажет вариант из кода.</p>
+
+<div class="screen-grid">
+  <form method="post" action="/screens/{{ screen.key }}" class="form">
+    <label class="field">
+      <span class="field-label">Текст экрана</span>
+      <textarea class="input textarea" name="body" rows="14" placeholder="{{ screen.default_body }}">{{ screen.body }}</textarea>
+    </label>
+    <div class="form-buttons">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </div>
+  </form>
+  <div>
+    <span class="field-label">Текст по умолчанию</span>
+    <div class="tg-preview" style="margin-top:6px">{{ screen.default_body }}</div>
+  </div>
+</div>
+
+{% endblock %}
