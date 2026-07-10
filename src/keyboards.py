@@ -114,11 +114,14 @@ def reminder_last_kb() -> InlineKeyboardMarkup:
 
 
 def mysub_kb() -> InlineKeyboardMarkup:
-    """Клавиатура экрана «Моя подписка»: чат (если задан) + меню."""
+    """Клавиатура экрана «Моя подписка» (активный подписчик): чат (если задан) +
+    продлить + меню. Продление доступно активному в любой момент, а не только по
+    напоминанию (вход NAV_RENEW → выбор тарифа → продление от текущей end_date)."""
     b = InlineKeyboardBuilder()
     if settings.club_chat_invite_url:
         b.row(InlineKeyboardButton(
             text="Перейти в закрытый чат", url=settings.club_chat_invite_url
         ))
+    b.row(InlineKeyboardButton(text="Продлить подписку", callback_data=NAV_RENEW))
     b.row(InlineKeyboardButton(text="В главное меню", callback_data=NAV_MENU))
     return b.as_markup()
