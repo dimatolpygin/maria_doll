@@ -285,7 +285,7 @@ def mysub_active(total: str, start, end) -> str:
 # услуги с тарифами и реквизиты ИП. Ссылка на публичную оферту — на S3.
 OFERTA_URL = (
     "https://s3.ru1.storage.beget.cloud/bbd5f068f995-project/"
-    "dolbikfit.payform.ru_public_offer.pdf"
+    "dolbikfit.payform.ru_public_offer%20(1).pdf"
 )
 
 
