@@ -10,7 +10,8 @@ from contextlib import suppress
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
 import asyncpg
 
 from .. import keyboards as kb
@@ -49,4 +50,25 @@ async def show_mysub(cb: CallbackQuery, pool: asyncpg.Pool) -> None:
     logger.info(
         f"🤖 Бот → @{cb.from_user.username or '—'}: моя подписка "
         f"(активна до {sub['end_date']:%d.%m.%Y})"
+    )
+
+
+@router.message(Command("sub"))
+async def cmd_sub(message: Message, pool: asyncpg.Pool) -> None:
+    """Статус подписки командой /sub (тот же экран «Моя подписка», но новым
+    сообщением). Активному — срок и кнопки чат/продлить/меню; иначе — предложение
+    оформить."""
+    u = message.from_user
+    await repo.set_fsm_state(pool, u.id, "screen:mysub")
+    sub = await repo.get_active_subscription(pool, u.id)
+    if sub is None:
+        await message.answer(texts.MYSUB_NONE, reply_markup=kb.to_menu_kb())
+        logger.info(f"🤖 Бот → @{u.username or '—'}: /sub (нет активной)")
+        return
+    await message.answer(
+        texts.mysub_active(fmt_price(sub["price"]), sub["start_date"], sub["end_date"]),
+        reply_markup=kb.mysub_kb(),
+    )
+    logger.info(
+        f"🤖 Бот → @{u.username or '—'}: /sub (активна до {sub['end_date']:%d.%m.%Y})"
     )

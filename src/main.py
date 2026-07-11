@@ -87,6 +87,9 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=True)
         await bot.set_my_commands([
             BotCommand(command="start", description="Главный экран"),
+            BotCommand(command="menu", description="Меню"),
+            BotCommand(command="sub", description="Моя подписка"),
+            BotCommand(command="oferta", description="Оферта и реквизиты"),
         ])
         me = await bot.get_me()
         scheduler.start()

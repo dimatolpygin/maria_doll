@@ -7,10 +7,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 import asyncpg
 
-from .. import repo
+from .. import repo, texts
 from ..logger import logger
 from ..services import menu
 from ..services import screens
+from ..utils import fmt_price
 
 router = Router()
 
@@ -43,6 +44,20 @@ async def cmd_menu(message: Message, pool: asyncpg.Pool, state: FSMContext) -> N
         photo_url=view["photo_url"], edit=False,
     )
     logger.info(f"🤖 Бот → @{u.username or '—'}: главное меню /menu")
+
+
+@router.message(Command("oferta"))
+async def cmd_oferta(message: Message, pool: asyncpg.Pool) -> None:
+    """Оферта и реквизиты (требование Продамуса — доступны в боте)."""
+    tariffs = await repo.get_active_tariffs(pool)
+    block = "\n".join(
+        f"· {t['title']} — {fmt_price(t['price'])} ₽" for t in tariffs
+    ) or "—"
+    await message.answer(
+        texts.oferta_text(block), disable_web_page_preview=True
+    )
+    u = message.from_user
+    logger.info(f"🤖 Бот → @{u.username or '—'}: /oferta (оферта и реквизиты)")
 
 
 @router.message(Command("id"))
