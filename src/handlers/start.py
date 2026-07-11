@@ -51,7 +51,8 @@ async def cmd_oferta(message: Message, pool: asyncpg.Pool) -> None:
     """Оферта и реквизиты (требование Продамуса — доступны в боте)."""
     tariffs = await repo.get_active_tariffs(pool)
     block = "\n".join(
-        f"· {t['title']} — {fmt_price(t['price'])} ₽" for t in tariffs
+        f"· {texts.period_phrase(t['months'], t['unit'])} — {fmt_price(t['price'])} ₽"
+        for t in tariffs
     ) or "—"
     await message.answer(
         texts.oferta_text(block), disable_web_page_preview=True
