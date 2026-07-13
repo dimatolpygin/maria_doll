@@ -18,7 +18,7 @@ import json
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import InputMediaPhoto, URLInputFile
+from aiogram.types import InputMediaDocument, InputMediaPhoto, URLInputFile
 import asyncpg
 
 from .. import repo
@@ -30,6 +30,18 @@ def _media(photos: list[dict], text: str | None) -> list[InputMediaPhoto]:
     return [
         InputMediaPhoto(media=p["url"], caption=text if (i == 0 and text) else None)
         for i, p in enumerate(photos)
+    ]
+
+
+def _doc_media(documents: list[dict], text: str | None) -> list[InputMediaDocument]:
+    """media_group из файлов; подпись — только на первом. URLInputFile сохраняет
+    исходное имя файла у получателя (а не uuid из S3-ключа)."""
+    return [
+        InputMediaDocument(
+            media=URLInputFile(d["url"], filename=d.get("name")),
+            caption=text if (i == 0 and text) else None,
+        )
+        for i, d in enumerate(documents)
     ]
 
 
@@ -51,11 +63,17 @@ async def _send_one(
             await bot.send_media_group(uid, _media(photos, text))
         caption_used = bool(text)
 
-    for i, d in enumerate(documents):
-        caption = text if (not caption_used and i == 0) else None
-        await bot.send_document(
-            uid, URLInputFile(d["url"], filename=d.get("name")), caption=caption,
-        )
+    if documents:
+        caption = text if not caption_used else None
+        if len(documents) == 1:
+            d = documents[0]
+            await bot.send_document(
+                uid, URLInputFile(d["url"], filename=d.get("name")), caption=caption,
+            )
+        else:
+            # Несколько файлов — одним альбомом (в группе нельзя мешать с фото,
+            # поэтому документы идут своей media_group).
+            await bot.send_media_group(uid, _doc_media(documents, caption))
         if caption:
             caption_used = True
 
