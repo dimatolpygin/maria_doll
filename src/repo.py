@@ -616,15 +616,23 @@ _AUDIENCE_WHERE = {
 
 async def create_broadcast(
     pool: asyncpg.Pool, *, audience: str, body: str | None,
-    photos: list[dict] | None = None, created_by: str | None,
+    photos: list[dict] | None = None, documents: list[dict] | None = None,
+    created_by: str | None,
 ) -> int:
-    """Ставит рассылку в очередь. photos — список {"url": ...} (публичные S3-ссылки)."""
+    """Ставит рассылку в очередь.
+
+    photos — список {"url": ...} (публичные S3-ссылки на фото),
+    documents — список {"url": ..., "name": ...} (файлы pdf/csv/xlsx/…).
+    """
     return await pool.fetchval(
         """
-        INSERT INTO broadcasts (audience, body, photos, created_by)
-        VALUES ($1, $2, $3::json, $4) RETURNING id
+        INSERT INTO broadcasts (audience, body, photos, documents, created_by)
+        VALUES ($1, $2, $3::json, $4::json, $5) RETURNING id
         """,
-        audience, body, json.dumps(photos or [], ensure_ascii=False), created_by,
+        audience, body,
+        json.dumps(photos or [], ensure_ascii=False),
+        json.dumps(documents or [], ensure_ascii=False),
+        created_by,
     )
 
 

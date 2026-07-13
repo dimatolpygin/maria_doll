@@ -18,7 +18,7 @@ import json
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import InputMediaPhoto
+from aiogram.types import InputMediaPhoto, URLInputFile
 import asyncpg
 
 from .. import repo
@@ -33,14 +33,34 @@ def _media(photos: list[dict], text: str | None) -> list[InputMediaPhoto]:
     ]
 
 
-async def _send_one(bot: Bot, uid: int, text: str | None, photos: list[dict]) -> None:
-    """Отправляет один экземпляр рассылки конкретному пользователю."""
-    if not photos:
+async def _send_one(
+    bot: Bot, uid: int, text: str | None,
+    photos: list[dict], documents: list[dict],
+) -> None:
+    """Отправляет один экземпляр рассылки конкретному пользователю.
+
+    Подпись (text) уходит один раз: с фото, если оно есть; иначе — с первым файлом;
+    иначе — отдельным сообщением. Файлы шлём через URLInputFile, чтобы у получателя
+    было исходное имя (name), а не uuid из S3-ключа.
+    """
+    caption_used = False
+    if photos:
+        if len(photos) == 1:
+            await bot.send_photo(uid, photos[0]["url"], caption=text or None)
+        else:
+            await bot.send_media_group(uid, _media(photos, text))
+        caption_used = bool(text)
+
+    for i, d in enumerate(documents):
+        caption = text if (not caption_used and i == 0) else None
+        await bot.send_document(
+            uid, URLInputFile(d["url"], filename=d.get("name")), caption=caption,
+        )
+        if caption:
+            caption_used = True
+
+    if text and not caption_used:
         await bot.send_message(uid, text)
-    elif len(photos) == 1:
-        await bot.send_photo(uid, photos[0]["url"], caption=text or None)
-    else:
-        await bot.send_media_group(uid, _media(photos, text))
 
 
 async def run_broadcast_check(pool: asyncpg.Pool, bot: Bot) -> None:
@@ -52,17 +72,18 @@ async def run_broadcast_check(pool: asyncpg.Pool, bot: Bot) -> None:
     bid = row["id"]
     text = row["body"] or None
     photos = json.loads(row["photos"] or "[]")
+    documents = json.loads(row["documents"] or "[]")
     recipients = await repo.broadcast_recipients(pool, row["audience"])
     await repo.set_broadcast_total(pool, bid, len(recipients))
     logger.info(
-        "📣 Рассылка #{} [{}] стартовала: {} получателей, фото {}",
-        bid, row["audience"], len(recipients), len(photos),
+        "📣 Рассылка #{} [{}] стартовала: {} получателей, фото {}, файлов {}",
+        bid, row["audience"], len(recipients), len(photos), len(documents),
     )
 
     sent = blocked = failed = 0
     for tg_id in recipients:
         try:
-            await _send_one(bot, tg_id, text, photos)
+            await _send_one(bot, tg_id, text, photos, documents)
             sent += 1
         except TelegramForbiddenError:
             # Пользователь заблокировал бота — помечаем, чтобы не слать впредь.
@@ -72,15 +93,15 @@ async def run_broadcast_check(pool: asyncpg.Pool, bot: Bot) -> None:
             # Флуд-контроль: ждём и повторяем этого же получателя один раз.
             await asyncio.sleep(e.retry_after + 1)
             try:
-                await _send_one(bot, tg_id, text, photos)
+                await _send_one(bot, tg_id, text, photos, documents)
                 sent += 1
             except Exception:  # noqa: BLE001
                 failed += 1
         except Exception as e:  # noqa: BLE001
             failed += 1
             logger.warning("Рассылка #{}: ошибка для id={}: {}", bid, tg_id, e)
-        # Альбом = несколько сообщений — шлём чуть медленнее (лимиты Telegram).
-        await asyncio.sleep(0.1 if photos else 0.05)
+        # Несколько сообщений (альбом/файлы) — шлём чуть медленнее (лимиты Telegram).
+        await asyncio.sleep(0.1 if (photos or documents) else 0.05)
 
     await repo.finish_broadcast(pool, bid, sent=sent, blocked=blocked, failed=failed)
     logger.info(

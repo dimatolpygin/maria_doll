@@ -30,8 +30,15 @@ Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</
     <span class="field-hint">Одно фото — с подписью; несколько — альбомом (подпись на первом).
     Можно без текста — только фото.</span>
   </div>
+  <div class="field" style="margin-top:12px">
+    <span class="field-label">Файлы (до {{ max_docs }})</span>
+    <input class="input" type="file" name="documents"
+           accept=".pdf,.csv,.xlsx,.xls,.docx,.doc,.html,.txt" multiple>
+    <span class="field-hint">Документы и таблицы: {{ doc_exts }}. Каждый уходит
+    отдельным файлом; если нет фото, подпись (текст) прикрепляется к первому файлу.</span>
+  </div>
   {% else %}
-  <p class="muted" style="margin-top:12px">Загрузка фото недоступна: хранилище S3 не настроено —
+  <p class="muted" style="margin-top:12px">Загрузка вложений недоступна: хранилище S3 не настроено —
   рассылка только текстовая.</p>
   {% endif %}
   <div class="form-actions"><button type="submit" class="btn btn-primary" data-busy="Отправляется…">Отправить рассылку</button></div>
@@ -51,7 +58,7 @@ Telegram (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a href&gt;</
       <tr>
         <td class="nowrap"><b>#{{ b.id }}</b></td>
         <td class="nowrap">{{ b.audience }}</td>
-        <td>{{ b.preview }}{% if b.photos %} <span class="badge badge-blue">фото {{ b.photos }}</span>{% endif %}</td>
+        <td>{{ b.preview }}{% if b.photos %} <span class="badge badge-blue">фото {{ b.photos }}</span>{% endif %}{% if b.documents %} <span class="badge badge-blue">файлов {{ b.documents }}</span>{% endif %}</td>
         <td class="nowrap">{{ b.status }}</td>
         <td class="nowrap">
           {% if b.is_done %}{{ b.sent }} / {{ b.total }}
